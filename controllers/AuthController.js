@@ -1,9 +1,11 @@
+const crypto = require('crypto');
 const { promisify } = require('util');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('./../models/User');
 const AppError = require('./../utils/AppError');
 const catchAsync = require('./../utils/CatchAsync');
+const sendEmail = require('./../utils/Email');
 
 const signToken = id => {
     return jwt.sign(
@@ -79,3 +81,60 @@ exports.restrictTo = (...roles) => {
         next();
     };
 }
+
+exports.forgotPassword = catchAsync(async (req,res,next)=>{
+    const user = await User.findOne({email:req.body.email});
+    if(!user){
+        console.log('shit');
+        return next(new AppError('There is no user with the email address',404));
+    }
+    const resetToken = user.generatePasswordResetToken();
+    await user.save({validateBeforeSave:false});
+
+    const resetUrl = `${req.protocol}://${req.get('host')}/api/users/resetPassword/${resetToken}`;
+    const message = ` Forgot password?Submit a patch request with your new password and passwordConsfirm
+    to ${resetUrl}`;
+
+    try{
+        await sendEmail({
+            email:user.email,
+            subject:'Password reset link (valid for 10 minutes)',
+            message
+        });
+        res.status(200).json({
+            status:'success',
+            message:'Token sent to email'
+        });
+    }catch(err){
+        user.passwordResetToken = undefined;
+        user.passwordResetExpies = undefined;
+        await user.save({validateBeforeSave:false});
+        return next(new AppError('Error sending email.Try again later!',500));
+    }
+    
+});
+
+exports.resetPassword = catchAsync(async (req,res,next)=>{
+    const hashedToken = crypto.createHash('sha256')
+                              .update(req.params.token)
+                              .digest('hex');
+    console.log(hashedToken);
+    const user = await User.findOne({
+        passwordResetToken:hashedToken,
+        passwordResetExpies:{$gt:Date.now()}
+    });
+    if(!user){
+        return next(new AppError('Invalid token',400));
+    }
+    user.password = req.body.password;
+    user.passwordConfirm = req.body.passwordConfirm;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpies = undefined;
+    await user.save();
+    const token = signToken(user._id);
+    res.status(200).json({
+        status:'Success',
+        token:token
+    });
+    
+});

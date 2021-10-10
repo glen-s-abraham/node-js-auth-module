@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const mongoose = require('mongoose');
 const validator = require('validator');
 const bcrypt = require('bcryptjs');
@@ -38,7 +39,10 @@ const userSchema = new mongoose.Schema(
                 message:`passwords Doesn't match`
             }
         },
-        passwordChangedAt:Date
+        passwordChangedAt:Date,
+        passwordResetToken:String,
+        passwordResetExpies:Date
+
 });
 
 userSchema.pre('save', async function(next){
@@ -47,6 +51,13 @@ userSchema.pre('save', async function(next){
     this.passwordConfirm = undefined;
     next();
 });
+
+userSchema.pre('save',function(next){
+    if(!this.isModified('password') || this.isNew) return next();
+    this.passwordChangedAt = Date.now() - 1000;
+    next();
+});
+
 
 userSchema.methods.isCorrectPassword = async function(candidatePassword, userPassword){
     return await bcrypt.compare(candidatePassword, userPassword);
@@ -58,6 +69,16 @@ userSchema.methods.isPasswordChanged = function(jwtTimestamp){
         return changedTime > jwtTimestamp;
     }
     return false;
+}
+
+userSchema.methods.generatePasswordResetToken = function(){
+    const token = crypto.randomBytes(32).toString('hex');
+    this.passwordResetToken = crypto.createHash('sha256')
+                                    .update(token)
+                                    .digest('hex');
+    console.log({token},this.passwordResetToken);
+    this.passwordResetExpies = Date.now() + 10 * 60 *1000;
+    return token;                                
 }
 
 const User = mongoose.model('User',userSchema);
