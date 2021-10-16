@@ -41,8 +41,18 @@ const userSchema = new mongoose.Schema(
         },
         passwordChangedAt:Date,
         passwordResetToken:String,
-        passwordResetExpies:Date
+        passwordResetExpies:Date,
+        isActive:{
+            type:Boolean,
+            default:true,
+            select:false
+        }
 
+});
+
+userSchema.pre(/^find/,function(next){
+    this.find({isActive:{$ne:false}});
+    next();
 });
 
 userSchema.pre('save', async function(next){
